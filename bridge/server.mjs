@@ -102,7 +102,7 @@ const ALLOW_WRITES = process.env.JARVIS_ALLOW_WRITES === '1'
  * The orchestrator model. Override with JARVIS_MODEL to trade quality for pace
  * — claude-sonnet-5 is noticeably snappier on camera if Opus feels slow.
  */
-const MODEL = process.env.JARVIS_MODEL ?? 'claude-opus-5'
+const MODEL = process.env.JARVIS_MODEL ?? 'claude-sonnet-5'
 
 /**
  * How hard the model thinks before answering.
@@ -118,8 +118,14 @@ const MODEL = process.env.JARVIS_MODEL ?? 'claude-opus-5'
  * spoken conversation tolerates. Raise it to 'high' or 'xhigh' when quality
  * matters more than pace; drop back to 'low' when filming and every second of
  * dead air shows.
+ *
+ * Set to 'low' here, with Sonnet above, because every second of thinking is a
+ * second of silence the user sits through with no idea whether he heard them.
+ * In conversation that reads as broken far sooner than a thinner answer reads
+ * as stupid. Both are one environment variable away: JARVIS_EFFORT=medium and
+ * JARVIS_MODEL=claude-opus-5 restore the slower, better pairing.
  */
-const EFFORT = process.env.JARVIS_EFFORT ?? 'high'
+const EFFORT = process.env.JARVIS_EFFORT ?? 'low'
 
 /**
  * Both spellings of every renamed built-in are listed on purpose. The SDK
@@ -290,6 +296,40 @@ function decideTool(name) {
   return ALLOW_WRITES
 }
 
+/**
+ * What he can do with the machine itself — only where it is true.
+ *
+ * Every line of this is macOS: \`open -a\`, screencapture, AppleScript. The
+ * same bridge runs on a Linux server, where none of it exists, and a prompt
+ * that promises a shell command which then fails teaches the model to stop
+ * trusting the rest of the prompt. So the section is present on a Mac and
+ * absent elsewhere, rather than hedged everywhere.
+ */
+const MAC_RULES = process.platform === 'darwin' ? `THE MACHINE. You are running on the user's own Mac, not inside a browser.
+You have a shell on it (Bash) and Read, Write, Edit, Glob and Grep over their
+files. The browser tools are for the web; everything else on this computer is
+done with these.
+- Open an application: \`open -a "Name"\` — Calculator, Safari, Mail, Finder,
+  Telegram, anything installed. A file or folder with its default app:
+  \`open <path>\`. Show it in Finder: \`open -R <path>\`.
+- See the screen: \`screencapture -x /tmp/jarvis-screen.png\`, then Read that
+  file — Read hands the image back to you. Do this whenever they ask what is
+  on the screen, what a window shows, or to check something by eye. Describe
+  what you see. Never say you cannot see the screen; you can.
+- Drive applications: \`osascript -e '…'\` with AppleScript and System Events —
+  menus, window titles, typing into a field, switching apps. Prefer it to
+  blind key presses, and read back the result.
+- Their files are under the home directory: Downloads in ~/Downloads, the
+  Desktop in ~/Desktop. Find with Glob or Grep, read with Read, change with
+  Edit or Write.
+- Clipboard: \`pbpaste\` reads it, \`pbcopy\` writes it.
+- If macOS refuses — a permission error, or a screenshot that shows only the
+  wallpaper with no windows — name the exact permission that is missing:
+  Screen Recording, Accessibility or Automation, in System Settings → Privacy
+  & Security → that section, for the JARVIS application.
+
+` : ''
+
 const SYSTEM_PROMPT = `You are JARVIS. You are speaking out loud to one person.
 
 LENGTH. Two sentences is the ceiling in conversation; the median is under twelve
@@ -426,7 +466,7 @@ Your eyes:
 - Describe a watch as a sequence — what changed between the frames — not as a
   list of pictures. They know what their own hands look like.
 
-Using tools:
+${MAC_RULES}Using tools:
 - You have real tools on this machine. Use them rather than guessing.
 - Never narrate that you're about to use one. No "Let me search for that" or
   "I'll check that now" — go silent, use it, then answer. The user sees a
@@ -437,6 +477,42 @@ Using tools:
   Put the source in the panel as a short tag like "REUTERS" instead.
 - If a tool fails or isn't connected, one plain sentence saying so.
 - If you don't know, say you don't know.`
+
+/**
+ * The language he answers in.
+ *
+ * Everything above is built out of English — the register, the vocabulary
+ * rules, the filler blacklist, even the joke about "aitch tee tee pee". Point
+ * the voice loop at another language and the model holds the line on a full
+ * sentence and drifts straight back to English on a short or half-heard one,
+ * which is precisely when a voice assistant can least afford to be
+ * incomprehensible. Saying the rule plainly, in the target language, is what
+ * makes it stick.
+ *
+ * Set JARVIS_LANG=en to get the original English-only character back.
+ */
+const LANG = (process.env.JARVIS_LANG ?? 'ru').toLowerCase()
+
+const RUSSIAN_RULES = `
+
+ЯЗЫК. Ты говоришь только по-русски — всегда, включая короткие реплики,
+подтверждения и сообщения об ошибке. Если фраза пришла обрывком или ты её не
+разобрал, всё равно отвечай по-русски: переходить на английский нельзя. Одно
+исключение — пользователь сам заговорил на другом языке, тогда отвечай на нём.
+
+«СЭР» работает ровно как "sir" выше: в начале реплики — тревога, в конце —
+обычная учтивость, в середине — поправка. Примерно в половине реплик, никогда
+дважды в одной.
+
+НИКОГДА по-русски:
+- Никаких слов-заполнителей: ни «так», ни «ну», ни «сейчас посмотрю», ни «минутку».
+- Никакого воодушевления: ни «отлично», ни «конечно», ни «с радостью», ни «без проблем».
+- Никаких извинений: ни «извините», ни «простите».
+- Никогда «ага» и «угу» — только «Да».
+- Неудача — факт о мире, а не твой промах: «Боюсь, записи об этом нет.»`
+
+const PROMPT = LANG.startsWith('en') ? SYSTEM_PROMPT : SYSTEM_PROMPT + RUSSIAN_RULES
+
 
 /**
  * ElevenLabs credentials, borrowed from the MCP server config.
@@ -998,7 +1074,7 @@ const wss = new WebSocketServer({
     done(true)
   },
 })
-server.listen(PORT)
+server.listen(PORT, process.env.JARVIS_BRIDGE_HOST ?? '127.0.0.1')
 
 console.log(`[jarvis] bridge listening on ws://localhost:${PORT}`)
 console.log(
@@ -1219,7 +1295,7 @@ wss.on('connection', (socket) => {
       // tuned for a coding agent — verbose, file-oriented, and a large chunk
       // of input tokens on every turn. Replacing it makes the persona stick,
       // keeps answers short enough to speak, and cuts cost per turn.
-      systemPrompt: SYSTEM_PROMPT,
+      systemPrompt: PROMPT,
       // Run from the home directory so project-scoped MCP servers don't shadow
       // the global ones, and so file tools have a sane root.
       cwd: homedir(),
@@ -1404,6 +1480,7 @@ wss.on('connection', (socket) => {
     }
 
     if (msg.type === 'ask' && typeof msg.text === 'string') {
+      console.log(`[jarvis] heard: ${JSON.stringify(msg.text)}`)
       /**
        * Queued behind any interrupt that is still settling.
        *
