@@ -19,7 +19,8 @@
     "setup": "node scripts/setup.mjs",
     "app": "npm run build && electron .",
     "app:dev": "electron . --dev",
-    "app:build": "npm run build && electron-builder"
+    "app:build": "npm run build && electron-builder",
+    "test": "node --import tsx --test src/lib/*.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.220",
