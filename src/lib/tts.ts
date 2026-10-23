@@ -8,6 +8,7 @@ import {
 } from '../config'
 import * as kokoro from './kokoro'
 import { caps } from './capabilities'
+import { SPEECH_LANG, SPEECH_LANG_IS_ENGLISH, SPEECH_LANG_RE } from './lang'
 
 /**
  * Speech output.
@@ -46,12 +47,27 @@ type Speaker = {
 // ---------------------------------------------------------------------------
 
 let speaking = ''
-let recent = ''
-let recentUntil = 0
+
+/**
+ * Every sentence spoken in the recent past, not merely the last one.
+ *
+ * His answers run to several sentences, and the microphone returns them as one
+ * long transcript assembled across all of them. Compared against a single
+ * sentence that transcript shares too few words to look like an echo, so it is
+ * handed to the model as a fresh question — and he interrupts his own answer
+ * to respond to it. Keeping the whole recent utterance is what makes the
+ * comparison meaningful.
+ */
+let recentParts: { text: string; until: number }[] = []
 
 /** Recognition lags the speakers by a few hundred milliseconds, so a sentence
- *  keeps arriving at the microphone well after it has finished playing. */
-const ECHO_TAIL_MS = 1800
+ *  keeps arriving at the microphone well after it has finished playing.
+ *
+ *  Outside English that lag is markedly longer — Chrome finalises a Russian
+ *  utterance well after an English one of the same length — and 1800ms leaves
+ *  the tail of his own answer arriving after the window has shut, at which
+ *  point he hears himself ask a question and dutifully answers it. */
+const ECHO_TAIL_MS = SPEECH_LANG_IS_ENGLISH ? 1800 : 3500
 
 /**
  * Why you cannot hear him.
@@ -118,8 +134,7 @@ function setSpeaking(text: string) {
     return
   }
   if (speaking) {
-    recent = speaking
-    recentUntil = Date.now() + ECHO_TAIL_MS
+    recentParts.push({ text: speaking, until: Date.now() + ECHO_TAIL_MS })
   }
   speaking = ''
 }
@@ -134,8 +149,12 @@ function setSpeaking(text: string) {
  * one lands. See `isEcho` in voice.ts.
  */
 export function speakingNow(): string {
-  const tail = Date.now() < recentUntil ? recent : ''
-  return `${speaking} ${tail}`.trim()
+  const now = Date.now()
+  recentParts = recentParts.filter((p) => p.until > now)
+  return [speaking, ...recentParts.map((p) => p.text)]
+    .filter(Boolean)
+    .join(' ')
+    .trim()
 }
 
 // ---------------------------------------------------------------------------
@@ -173,9 +192,29 @@ const VOICE_PREF_KEY = 'jarvis.voice'
  * download is free (System Settings → Accessibility → Spoken Content → System
  * Voice → Manage Voices) and once installed it appears here automatically.
  */
+/** Obvious novelty voices, which are wrong in any language. */
+const NOVELTY =
+  /grandma|grandpa|bubbles|jester|bells|boing|whisper|zarvox|superstar|trinoids|wobble|bahh|organ|cellos|bad news|good news/
+
 function score(v: SpeechSynthesisVoice): number {
   const n = v.name.toLowerCase()
   let s = 0
+
+  // Outside English none of the rules below apply: they are built from the
+  // names and accents of one British male cast, and a Russian voice scores a
+  // flat zero against them — which the USABLE threshold then reads as "no
+  // voice available" and the loop falls silent. Judge those voices on what can
+  // actually be judged: the language, novelty, quality tier, and a nudge
+  // toward the male voices, since the character is written for one.
+  if (!SPEECH_LANG_IS_ENGLISH) {
+    if (!SPEECH_LANG_RE.test(v.lang)) return 0
+    s = 50
+    if (/\b(yuri|юрий|pavel|павел|maxim|максим|artemy|dmitri)\b/.test(n)) s += 20
+    if (n.includes('premium')) s += 30
+    else if (n.includes('enhanced')) s += 20
+    if (NOVELTY.test(n)) s -= 200
+    return s
+  }
 
   // The macOS British male, and the closest thing to the character available
   // without leaving the machine.
@@ -193,9 +232,7 @@ function score(v: SpeechSynthesisVoice): number {
   else if (/^en/i.test(v.lang)) s += 5
 
   // Voices that clearly aren't a butler.
-  if (/grandma|grandpa|bubbles|jester|bells|boing|whisper|zarvox|superstar|trinoids|wobble|bahh|organ|cellos|bad news|good news/.test(n)) {
-    s -= 200
-  }
+  if (NOVELTY.test(n)) s -= 200
   // Female-presenting names across the English sets.
   if (/\b(flo|sandy|shelley|kate|serena|fiona|moira|karen|tessa|samantha|zoe|allison|ava|susan)\b/.test(n)) {
     s -= 60
@@ -212,7 +249,7 @@ const USABLE = 40
 export function candidateVoices(): SpeechSynthesisVoice[] {
   return speechSynthesis
     .getVoices()
-    .filter((v) => /^en/i.test(v.lang))
+    .filter((v) => SPEECH_LANG_RE.test(v.lang))
     .map((v) => ({ v, s: score(v) }))
     .filter((x) => x.s >= USABLE)
     .sort((a, b) => b.s - a.s)
@@ -236,7 +273,7 @@ function pickVoice(): SpeechSynthesisVoice | null {
     localStorage.removeItem(VOICE_PREF_KEY)
   }
 
-  cachedVoice = candidateVoices()[0] ?? all.find((v) => /^en/i.test(v.lang)) ?? null
+  cachedVoice = candidateVoices()[0] ?? all.find((v) => SPEECH_LANG_RE.test(v.lang)) ?? null
   return cachedVoice
 }
 
@@ -477,7 +514,7 @@ export function createSpeaker(): Speaker {
       const u = new SpeechSynthesisUtterance(text)
       const voice = pickVoice()
       if (voice) u.voice = voice
-      u.lang = voice?.lang ?? 'en-GB'
+      u.lang = voice?.lang ?? SPEECH_LANG
       // Deliberate, and deliberately invariant — the character's pace does not
       // change with stakes, and that steadiness is most of the effect. This
       // lands around 130 wpm, below the median for film dialogue.
