@@ -16,7 +16,10 @@
     "preview": "vite preview",
     "bridge": "node bridge/server.mjs",
     "bridge:writes": "JARVIS_ALLOW_WRITES=1 node bridge/server.mjs",
-    "setup": "node scripts/setup.mjs"
+    "setup": "node scripts/setup.mjs",
+    "app": "npm run build && electron .",
+    "app:dev": "electron . --dev",
+    "app:build": "npm run build && electron-builder"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.220",
@@ -45,9 +48,70 @@
     "@types/three": "^0.185.3",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^6.0.4",
+    "electron": "^38.4.0",
+    "electron-builder": "^26.0.12",
     "oxlint": "^1.75.0",
     "tsx": "^4.23.1",
     "typescript": "~6.0.2",
     "vite": "^8.2.0"
+  },
+  "main": "electron/main.cjs",
+  "build": {
+    "appId": "com.jarvis.desktop",
+    "productName": "JARVIS",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "/package.json",
+      "!node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "dist",
+        "to": "app/dist"
+      },
+      {
+        "from": "bridge",
+        "to": "app/bridge"
+      },
+      {
+        "from": "package.json",
+        "to": "app/package.json"
+      },
+      {
+        "from": "node_modules/@anthropic-ai",
+        "to": "app/node_modules/@anthropic-ai"
+      },
+      {
+        "from": "node_modules/ws",
+        "to": "app/node_modules/ws"
+      },
+      {
+        "from": "node_modules/zod",
+        "to": "app/node_modules/zod"
+      },
+      {
+        "from": "node_modules/standardwebhooks",
+        "to": "app/node_modules/standardwebhooks"
+      },
+      {
+        "from": "node_modules/json-schema-to-ts",
+        "to": "app/node_modules/json-schema-to-ts"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dir"
+      ],
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "JARVIS слушает ваши команды через микрофон.",
+        "NSCameraUsageDescription": "JARVIS использует камеру для управления жестами и для того, чтобы видеть то, что вы показываете.",
+        "NSAppleEventsUsageDescription": "JARVIS управляет другими программами по вашим голосовым командам."
+      }
+    },
+    "asar": false
   }
 }
