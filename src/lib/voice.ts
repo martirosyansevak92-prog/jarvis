@@ -254,10 +254,14 @@ function makeAssembler(h: {
 // Hearing himself
 // ---------------------------------------------------------------------------
 
+// Letters of any script, not just a-z. Stripping everything else leaves a
+// non-Latin transcript as an empty bag of words, and isEcho reads "nothing
+// was said" as proof of an echo — so in any language but English, everything
+// the user says while he is talking is silently discarded as his own voice.
 const norm = (s: string) =>
   s
     .toLowerCase()
-    .replace(/[^a-z0-9' ]+/g, ' ')
+    .replace(/[^\p{L}\p{N}' ]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 
