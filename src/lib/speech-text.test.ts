@@ -55,6 +55,13 @@ describe('norm', () => {
   test('keeps Latin and digits, drops punctuation', () => {
     assert.equal(norm("What's the time, 7pm?"), "what's the time 7pm")
   })
+  test('keeps combining marks, so words that differ only by a vowel sign stay different', () => {
+    // Devanagari writes vowels as marks (category \p{M}); stripping them
+    // collapsed these two words to one, and the echo check could discard a
+    // new utterance as his own voice.
+    assert.notEqual(norm('दिन अच्छा'), norm('दान अच्छा'))
+    assert.equal(norm('caf\u0065\u0301'), 'cafe\u0301')
+  })
 })
 
 describe('holdFor — when a sentence is finished', () => {
@@ -92,6 +99,18 @@ describe('mergeTranscript — a re-emitted transcript does not repeat itself', (
   })
   test('a genuine continuation is appended', () => {
     assert.equal(mergeTranscript('открой почту', 'и календарь'), 'открой почту и календарь')
+  })
+  // Transcribers punctuate every final result, so the first half almost
+  // always ends in a full stop or a question mark — this was the common case,
+  // not the edge, and a raw string comparison missed it every time.
+  test('a re-emission is recognised across terminal punctuation', () => {
+    assert.equal(mergeTranscript('What time is it?', 'What time is it in Tokyo?'), 'What time is it in Tokyo?')
+    assert.equal(mergeTranscript('Какая погода.', 'Какая погода в Ереване?'), 'Какая погода в Ереване?')
+  })
+  test('an overlap is matched without regard to case or punctuation', () => {
+    // The comma rode on the overlapping word and goes with it; that is a
+    // cosmetic loss the model reads straight through.
+    assert.equal(mergeTranscript('Open the door.', 'the door, please'), 'Open the door please')
   })
 })
 
