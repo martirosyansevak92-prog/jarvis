@@ -179,6 +179,34 @@ function holdFor(text: string): number {
   return SETTLE_MS
 }
 
+/**
+ * Join a new transcript onto what is held, without repeating the overlap.
+ *
+ * A transcriber does not only append. It re-emits: "what's the weather"
+ * becomes "what's the weather in London tomorrow" a moment later, as a fresh
+ * final result containing everything it already sent. Concatenating blindly
+ * doubles the opening words and the model is asked about "what's the weather
+ * what's the weather in London" — so a transcript that extends what is held
+ * replaces it, and a partial overlap is stitched at the seam.
+ */
+function mergeTranscript(held: string, incoming: string): string {
+  if (!held) return incoming
+  const a = held.toLowerCase()
+  const b = incoming.toLowerCase()
+  // A re-emission of the same thought, longer or identical.
+  if (b.startsWith(a)) return incoming
+  if (a.endsWith(b)) return held
+  // The tail of what is held is the head of what arrived: stitch, don't repeat.
+  // Four characters is short enough to catch a one-word overlap and long
+  // enough that a shared "in" or "the" does not swallow a real continuation.
+  for (let n = Math.min(a.length, b.length); n >= 4; n--) {
+    if (a.endsWith(b.slice(0, n))) {
+      return `${held}${incoming.slice(n)}`.replace(/\s+/g, ' ').trim()
+    }
+  }
+  return `${held} ${incoming}`.replace(/\s+/g, ' ').trim()
+}
+
 type Assembler = {
   /** Add a transcript. `active` is true if the user is audibly still going. */
   feed: (text: string, active: boolean) => void
@@ -213,7 +241,7 @@ function makeAssembler(h: {
   return {
     feed(text, active) {
       if (!text.trim()) return
-      held = `${held} ${text}`.replace(/\s+/g, ' ').trim()
+      held = mergeTranscript(held, text.trim())
       if (!firstAt) firstAt = Date.now()
       // The caption shows the whole thought as it assembles, not just the
       // fragment that happened to arrive last.
