@@ -180,6 +180,24 @@ function holdFor(text: string): number {
 }
 
 /**
+ * A transcript as the comparison sees it: one entry per word, with the word
+ * lowercased and stripped to letters and digits, and the original spelling
+ * kept beside it for output. Comparing on the key is what lets "What time is
+ * it?" be recognised as the start of "What time is it in Tokyo?" — the
+ * transcriber punctuates every final result, so the raw strings never match.
+ */
+type Token = { raw: string; key: string }
+const tokens = (s: string): Token[] =>
+  s
+    .trim()
+    .split(/\s+/)
+    .map((raw) => ({ raw, key: raw.toLowerCase().replace(/[^\p{L}\p{M}\p{N}']+/gu, '') }))
+    .filter((t) => t.key)
+
+const startsWithKeys = (list: Token[], prefix: Token[]) =>
+  prefix.length <= list.length && prefix.every((t, i) => t.key === list[i].key)
+
+/**
  * Join a new transcript onto what is held, without repeating the overlap.
  *
  * A transcriber does not only append. It re-emits: "what's the weather"
@@ -191,17 +209,22 @@ function holdFor(text: string): number {
  */
 function mergeTranscript(held: string, incoming: string): string {
   if (!held) return incoming
-  const a = held.toLowerCase()
-  const b = incoming.toLowerCase()
+  const a = tokens(held)
+  const b = tokens(incoming)
+  if (!a.length) return incoming
+  if (!b.length) return held
   // A re-emission of the same thought, longer or identical.
-  if (b.startsWith(a)) return incoming
-  if (a.endsWith(b)) return held
+  if (startsWithKeys(b, a)) return incoming
+  // The same thought again, shorter — what is held already ends with it.
+  if (b.length <= a.length && startsWithKeys(a.slice(a.length - b.length), b)) return held
   // The tail of what is held is the head of what arrived: stitch, don't repeat.
-  // Four characters is short enough to catch a one-word overlap and long
-  // enough that a shared "in" or "the" does not swallow a real continuation.
-  for (let n = Math.min(a.length, b.length); n >= 4; n--) {
-    if (a.endsWith(b.slice(0, n))) {
-      return `${held}${incoming.slice(n)}`.replace(/\s+/g, ' ').trim()
+  // At least four letters of overlap, so a shared "in" or "the" does not
+  // swallow a real continuation.
+  for (let k = Math.min(a.length, b.length); k >= 1; k--) {
+    const tail = a.slice(a.length - k)
+    if (tail.map((t) => t.key).join('').length >= 4 && startsWithKeys(b, tail)) {
+      const lead = held.trim().replace(/[\s.!?,;:…]+$/u, '')
+      return `${lead} ${b.slice(k).map((t) => t.raw).join(' ')}`.replace(/\s+/g, ' ').trim()
     }
   }
   return `${held} ${incoming}`.replace(/\s+/g, ' ').trim()
