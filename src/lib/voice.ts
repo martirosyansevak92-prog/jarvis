@@ -312,7 +312,7 @@ function makeAssembler(h: {
 const norm = (s: string) =>
   s
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}' ]+/gu, ' ')
+    .replace(/[^\p{L}\p{M}\p{N}' ]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 
